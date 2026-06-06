@@ -3,6 +3,7 @@ pipeline {
 
     environment {
         APP_NAME = "employee-api"
+        SONAR_SERVER = "sonarqube"
     }
 
     stages {
@@ -13,27 +14,61 @@ pipeline {
             }
         }
 
-        stage('Build') {
+        stage('Build & Test') {
             steps {
-                sh 'mvn clean package'
+                sh 'mvn clean verify'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                echo "SonarQube will be enabled after EC2-2 setup"
+
+                // ENABLE LATER AFTER SONAR INSTALL
+                /*
+                withSonarQubeEnv('sonarqube') {
+                    sh '''
+                    mvn sonar:sonar \
+                    -Dsonar.projectKey=employee-api \
+                    -Dsonar.projectName=employee-api
+                    '''
+                }
+                */
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                echo "Quality Gate will be enabled later"
+
+                /*
+                timeout(time: 2, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+                */
             }
         }
 
         stage('Docker Build') {
             steps {
-                sh 'docker build -t employee-api:latest .'
+                sh """
+                docker build -t employee-api:${BUILD_NUMBER} .
+                docker tag employee-api:${BUILD_NUMBER} employee-api:latest
+                """
             }
         }
 
         stage('Trivy Scan') {
             steps {
-                sh 'trivy image employee-api:latest'
+                sh """
+                trivy image --severity HIGH,CRITICAL employee-api:latest
+                """
             }
         }
 
         stage('Deploy') {
             steps {
-                sh '''
+                sh """
                 docker stop employee-api || true
                 docker rm employee-api || true
 
@@ -41,7 +76,7 @@ pipeline {
                 --name employee-api \
                 -p 8081:8081 \
                 employee-api:latest
-                '''
+                """
             }
         }
     }
