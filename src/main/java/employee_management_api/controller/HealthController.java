@@ -13,11 +13,11 @@ public class HealthController {
 
     @GetMapping("/health")
     public String health() {
-        return "UP";
+        return "UP & RUNNING";
     }
 
     @GetMapping("/version")
     public String version() {
-        return "Version 1.0";
+        return "Version 2.0";
     }
 }
