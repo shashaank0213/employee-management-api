@@ -22,30 +22,22 @@ pipeline {
 
         stage('SonarQube Analysis') {
             steps {
-                echo "SonarQube will be enabled after EC2-2 setup"
-
-                // ENABLE LATER AFTER SONAR INSTALL
-                /*
                 withSonarQubeEnv('sonarqube') {
                     sh '''
-                    mvn sonar:sonar \
+                    mvn clean verify sonar:sonar \
                     -Dsonar.projectKey=employee-api \
-                    -Dsonar.projectName=employee-api
+                    -Dsonar.projectName=employee-api \
+                    -Dsonar.host.url=http://34.237.245.203:30335
                     '''
                 }
-                */
             }
         }
 
         stage('Quality Gate') {
             steps {
-                echo "Quality Gate will be enabled later"
-
-                /*
                 timeout(time: 2, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
-                */
             }
         }
 
