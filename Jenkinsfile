@@ -2,8 +2,10 @@ pipeline {
     agent any
 
     environment {
-        APP_NAME = "employee-api"
-        SONAR_SERVER = "sonarqube"
+        AWS_REGION = "us-east-1"
+        AWS_ACCOUNT_ID = "754397067775"
+        ECR_REPO = "employee-api"
+        IMAGE_TAG = "${BUILD_NUMBER}"
     }
 
     stages {
@@ -24,10 +26,9 @@ pipeline {
             steps {
                 withSonarQubeEnv('sonarqube') {
                     sh '''
-                    mvn clean verify sonar:sonar \
+                    mvn sonar:sonar \
                     -Dsonar.projectKey=employee-api \
-                    -Dsonar.projectName=employee-api \
-                    -Dsonar.host.url=http://34.237.245.203:30335
+                    -Dsonar.projectName=employee-api
                     '''
                 }
             }
@@ -35,7 +36,7 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                timeout(time: 2, unit: 'MINUTES') {
+                timeout(time: 5, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
@@ -43,33 +44,70 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                sh """
-                docker build -t employee-api:${BUILD_NUMBER} .
-                docker tag employee-api:${BUILD_NUMBER} employee-api:latest
-                """
+                sh '''
+                docker build -t employee-api:${IMAGE_TAG} .
+                docker tag employee-api:${IMAGE_TAG} employee-api:latest
+                '''
             }
         }
 
         stage('Trivy Scan') {
             steps {
-                sh """
-                trivy image --severity HIGH,CRITICAL employee-api:latest
-                """
+                sh '''
+                trivy image --severity HIGH,CRITICAL employee-api:${IMAGE_TAG}
+                '''
             }
         }
 
-        stage('Deploy') {
+        stage('Login to ECR') {
             steps {
-                sh """
-                docker stop employee-api || true
-                docker rm employee-api || true
-
-                docker run -d \
-                --name employee-api \
-                -p 8081:8081 \
-                employee-api:latest
-                """
+                sh '''
+                aws ecr get-login-password --region ${AWS_REGION} | \
+                docker login \
+                --username AWS \
+                --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                '''
             }
+        }
+
+        stage('Push to ECR') {
+            steps {
+                sh '''
+                docker tag employee-api:${IMAGE_TAG} \
+                ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
+
+                docker tag employee-api:${IMAGE_TAG} \
+                ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
+
+                docker push \
+                ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
+
+                docker push \
+                ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
+                '''
+            }
+        }
+
+        stage('Deploy to K3s') {
+            steps {
+                sh '''
+                kubectl set image deployment/employee-api \
+                employee-api=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG} \
+                -n employee
+
+                kubectl rollout status deployment/employee-api -n employee
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+
+        failure {
+            echo 'Pipeline failed. Check logs.'
         }
     }
 }
